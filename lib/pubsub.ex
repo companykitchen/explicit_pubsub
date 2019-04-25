@@ -35,6 +35,16 @@ defmodule Pubsub do
   and
   __MOUDLE__.Payments.subscribe()
   """
+
+  @type name :: atom
+  @type spec :: any
+  @type event :: {name, spec}
+  @type topic :: %{
+          topic: String.t(),
+          module: module(),
+          events: [event]
+        }
+
   defmacro __using__(_) do
     Module.register_attribute(
       __CALLER__.module,
@@ -55,11 +65,13 @@ defmodule Pubsub do
     end
   end
 
-  defmacro topic(string_topic, do: {:__block__, [], actions}) do
+  defmacro topic(string_topic, args \\ [], block)
+
+  defmacro topic(string_topic, _args, do: {:__block__, [], actions}) do
     write_topic(string_topic, actions, __CALLER__)
   end
 
-  defmacro topic(string_topic, do: action) do
+  defmacro topic(string_topic, _args, do: action) do
     write_topic(string_topic, [action], __CALLER__)
   end
 
@@ -81,13 +93,9 @@ defmodule Pubsub do
       |> Module.split()
       |> Enum.map(&String.to_existing_atom(&1))
 
-    Enum.map(actions, fn
-      {:publishes, ctx, [event | [args_spec]]} ->
-        {:publishes, ctx, [event, [namespace_spec(args_spec, namespace)]]}
-
-      other ->
-        other
-    end)
+    for {:publishes, _ctx, [event | [arg_spec]]} <- actions do
+      {event, namespace_spec(arg_spec, namespace)}
+    end
   end
 
   def namespace_spec({atom, ctx, nil}, namespace) do
@@ -97,25 +105,22 @@ defmodule Pubsub do
   def namespace_spec(other, _namespace), do: other
 
   def write_topic(string_topic, actions, caller) do
-    calling_module = caller.module
-    actions = namespace_specs(actions, calling_module)
-
     module_name =
       string_topic
       |> Macro.camelize()
 
-    Module.put_attribute(calling_module, :topics, {string_topic, module_name})
-    module_name = String.to_atom("#{calling_module}.#{module_name}")
+    calling_module = caller.module
 
-    attributes =
-      for {:publishes, _, [event | [args_spec]]} <- actions do
-        quote do
-          {unquote(module_name), unquote(event), unquote(Macro.escape(args_spec))}
-        end
-      end
+    topic = %{
+      topic: string_topic,
+      module: String.to_atom("#{calling_module}.#{module_name}"),
+      events: namespace_specs(actions, calling_module)
+    }
+
+    Module.put_attribute(calling_module, :topics, topic)
 
     publish_functions =
-      for {:publishes, _, [event | [[args_spec]]]} <- actions do
+      for {event, args_spec} <- topic.events do
         fn_name = String.to_atom("publish_#{event}")
 
         doc = Document.publish_function(event, string_topic, args_spec)
@@ -144,16 +149,7 @@ defmodule Pubsub do
 
           Module.register_attribute(__CALLER__.module, :subscriptions, accumulate: true)
           Module.put_attribute(__CALLER__.module, :state_type, type)
-
-          for {module, event, arg_spec} <- @events do
-            Module.put_attribute(
-              __CALLER__.module,
-              :subscriptions,
-              {module, event, arg_spec}
-            )
-          end
-
-          caller = __CALLER__.module
+          Module.put_attribute(__CALLER__.module, :subscriptions, unquote(Macro.escape(topic)))
 
           calling_module = unquote(calling_module)
           string_topic = unquote(string_topic)
@@ -166,10 +162,10 @@ defmodule Pubsub do
         end
       end
 
-    moduledoc = Document.topic_module(calling_module, string_topic, actions)
+    moduledoc = Document.topic_module(calling_module, topic)
 
     callbacks =
-      for {:publishes, _, [event | [[args_spec]]]} <- actions do
+      for {event, args_spec} <- topic.events do
         callback = String.to_atom("handle_#{event}")
 
         quote do
@@ -177,15 +173,9 @@ defmodule Pubsub do
         end
       end
 
-    events =
-      for {:publishes, _, [event | _]} <- actions do
-        event
-      end
-
     quote do
-      defmodule unquote(module_name) do
+      defmodule unquote(topic.module) do
         @moduledoc unquote(moduledoc)
-        @events unquote(attributes)
         import Pubsub
         unquote(callbacks)
         unquote(publish_functions)
@@ -194,7 +184,7 @@ defmodule Pubsub do
         defmacro route_handle_infos() do
           string_topic = unquote(string_topic)
 
-          for event <- unquote(events) do
+          for {event, _} <- unquote(Macro.escape(topic.events)) do
             callback = String.to_atom("handle_#{event}")
 
             quote do
@@ -222,15 +212,11 @@ defmodule Pubsub do
 
   defmacro before_compile_subscribe(context) do
     # TODO, still working out how to define the callbacks module
-    events = Module.get_attribute(context.module, :subscriptions)
+    topics = Module.get_attribute(context.module, :subscriptions)
     state_type = Module.get_attribute(context.module, :state_type)
 
-    IO.puts("State type is #{inspect(Macro.to_string(state_type))}")
-
-    all = Enum.group_by(events, &elem(&1, 0), fn {_, e, s} -> {e, s} end)
-
-    for {_m, events} <- all do
-      for {event, [spec]} <- events do
+    for topic <- topics do
+      for {event, spec} <- topic.events do
         function = String.to_atom("handle_#{event}")
 
         quote do

@@ -11,23 +11,23 @@ defmodule Pubsub.Document do
     """
   end
 
-  def topic_module(calling_module, string_topic, actions) do
+  def topic_module(calling_module, topic) do
     moduledoc =
-      for {:publishes, _, [event | [args_spec]]} <- actions do
+      for {event, args_spec} <- topic.events do
         "`publish_#{event}/1` takes a `#{Macro.to_string(args_spec)}` and publishes  `%{topic: #{
-          inspect(string_topic)
+          inspect(topic.topic)
         }, event: #{inspect(event)}, msg: #{Macro.to_string(args_spec)}}`\n\n"
       end
       |> Enum.join()
 
-    "Publishes events on the `#{inspect(calling_module)}`'s topic: #{inspect(string_topic)}\n\n" <>
+    "Publishes events on the `#{inspect(calling_module)}`'s topic: #{inspect(topic.topic)}\n\n" <>
       "You can subscribe to events by calling `subscribe/1`\n\n" <> moduledoc
   end
 
   def main_module(module_name, topics) do
     defined =
-      for {topic, module} <- topics do
-        "topic `#{topic}` is handled by the module `#{module_name}.#{module}`\n"
+      for topic <- topics do
+        "topic `#{topic.topic}` is handled by the module `#{topic.module}`\n"
       end
 
     defined = if defined == [], do: "none", else: Enum.join(defined, "\n")
