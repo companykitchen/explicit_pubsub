@@ -13,7 +13,7 @@ defmodule Pubsub.PhoenixPubsub do
   def get_child_spec(server) do
     quote do
       %{
-        id: Phoenix.PubSub.PG2,
+        id: unquote(server),
         start: {Phoenix.PubSub.PG2, :start_link, [unquote(server), []]}
       }
     end

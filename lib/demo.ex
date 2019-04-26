@@ -1,10 +1,10 @@
 defmodule Pubsub.Demo do
+  alias Pubsub.Demo.Types
   @moduledoc "Testing module doc"
   use Pubsub
-  @type name_tuple :: {String.t(), String.t()}
 
   topic "string_events" do
-    publishes(:event1, name_tuple)
+    publishes(:event1, Types.name_tuple())
     publishes(:event2, String.t())
   end
 
@@ -18,10 +18,12 @@ defmodule Pubsub.Demo do
   end
 end
 
+defmodule Pubsub.Demo.Types do
+  @type name_tuple :: {String.t(), String.t()}
+end
+
 defmodule Pubsub.DemoConsumer do
-  use GenServer
-  require Pubsub.Demo.StringEvents
-  @behaviour Pubsub.Demo.StringEvents
+  use Pubsub.Demo.StringEvents
 
   def start_link(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -35,11 +37,11 @@ defmodule Pubsub.DemoConsumer do
   end
 
   ## Event consumers from behaviour
-  def handle_event1({_string1, _string2}, state) do
+  def handle_string_events_event1({_string1, _string2}, state) do
     state
   end
 
-  def handle_event2(_string, state) do
+  def handle_string_events_event2(_string, state) do
     state
   end
 
@@ -47,29 +49,9 @@ defmodule Pubsub.DemoConsumer do
     {:noreply, state}
   end
 
-  # Handle Calls
-  # Handle Casts
-  # Pubsub.Demo.StringEvents.route_handle_infos()
-  def handle_info("other info", state) do
-    {:noreply, state}
-  end
-
-  Pubsub.Demo.StringEvents.route_handle_infos()
-
   def handle_call(_, state) do
-    IO.inspect("Just checking")
     {:noreply, state}
   end
-
-  # def handle_info(%{topic: "string_events", event: :event1, msg: msg}, state) do
-  #   state = handle_event1(msg, state)
-  #   {:noreply, state}
-  # end
-
-  # def handle_info(%{topic: "string_events", event: :event2, msg: msg}, state) do
-  #   state = handle_event2(msg, state)
-  #   {:noreply, state}
-  # end
 end
 
 defmodule Pubsub.DemoProducer do

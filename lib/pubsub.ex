@@ -40,6 +40,7 @@ defmodule Pubsub do
   @type spec :: any
   @type event :: {name, spec}
   @type topic :: %{
+          pubsub_module: module,
           topic: String.t(),
           module: module(),
           events: [event]
@@ -109,120 +110,25 @@ defmodule Pubsub do
       string_topic
       |> Macro.camelize()
 
-    calling_module = caller.module
-
     topic = %{
+      pubsub_module: caller.module,
       topic: string_topic,
-      module: String.to_atom("#{calling_module}.#{module_name}"),
-      events: namespace_specs(actions, calling_module)
+      module: String.to_atom("#{caller.module}.#{module_name}"),
+      # namespace_specs(actions, caller.module)
+      events: Macro.expand(actions, caller)
     }
 
-    Module.put_attribute(calling_module, :topics, topic)
+    Module.put_attribute(caller.module, :topics, topic)
 
-    publish_functions =
-      for {event, args_spec} <- topic.events do
-        fn_name = String.to_atom("publish_#{event}")
-
-        doc = Document.publish_function(event, string_topic, args_spec)
-
-        quote do
-          @doc unquote(doc)
-          @spec unquote(fn_name)(unquote(args_spec)) :: :ok | {:error, term}
-          def unquote(fn_name)(arg) do
-            msg = Pubsub.make_envelope(unquote(string_topic), unquote(event), arg)
-
-            PhoenixPubsub.publish(unquote(calling_module), unquote(string_topic), msg)
-          end
-        end
-      end
-
-    basic_subscribe = Pubsub.PhoenixPubsub.subscribe(calling_module, string_topic)
-
-    subscribe_fn =
-      quote do
-        defmacro subscribe(type) do
-          Module.put_attribute(
-            __CALLER__.module,
-            :before_compile,
-            {Pubsub, :before_compile_subscribe}
-          )
-
-          Module.register_attribute(__CALLER__.module, :subscriptions, accumulate: true)
-          Module.put_attribute(__CALLER__.module, :state_type, type)
-          Module.put_attribute(__CALLER__.module, :subscriptions, unquote(Macro.escape(topic)))
-
-          calling_module = unquote(calling_module)
-          string_topic = unquote(string_topic)
-
-          PhoenixPubsub.subscribe(unquote(calling_module), unquote(string_topic))
-        end
-
-        def subscribe() do
-          unquote(basic_subscribe)
-        end
-      end
-
-    moduledoc = Document.topic_module(calling_module, topic)
-
-    callbacks =
-      for {event, args_spec} <- topic.events do
-        callback = String.to_atom("handle_#{event}")
-
-        quote do
-          @callback unquote(callback)(unquote(args_spec), any()) :: any()
-        end
-      end
-
-    quote do
-      defmodule unquote(topic.module) do
-        @moduledoc unquote(moduledoc)
-        import Pubsub
-        unquote(callbacks)
-        unquote(publish_functions)
-        unquote(subscribe_fn)
-
-        defmacro route_handle_infos() do
-          string_topic = unquote(string_topic)
-
-          for {event, _} <- unquote(Macro.escape(topic.events)) do
-            callback = String.to_atom("handle_#{event}")
-
-            quote do
-              def handle_info(
-                    %{topic: unquote(string_topic), event: unquote(event), message: msg},
-                    state
-                  ) do
-                new_state = unquote(callback)(msg, state)
-                {:noreply, new_state}
-              end
-            end
-          end
-        end
-      end
-    end
+    Pubsub.TopicModule.write_module(topic)
   end
 
+  # Invoked by before_compile
   defmacro document(env) do
     module_name = inspect(env.module)
     topics = Module.get_attribute(env.module, :topics)
     moduledoc = Document.main_module(module_name, topics)
 
     Module.put_attribute(env.module, :moduledoc, {99, moduledoc})
-  end
-
-  defmacro before_compile_subscribe(context) do
-    # TODO, still working out how to define the callbacks module
-    topics = Module.get_attribute(context.module, :subscriptions)
-    state_type = Module.get_attribute(context.module, :state_type)
-
-    for topic <- topics do
-      for {event, spec} <- topic.events do
-        function = String.to_atom("handle_#{event}")
-
-        quote do
-          @callback unquote(function)(unquote(spec), unquote(state_type)) :: unquote(state_type)
-        end
-      end
-    end
   end
 end
