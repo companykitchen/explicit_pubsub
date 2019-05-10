@@ -152,8 +152,6 @@ defmodule Pubsub.TopicModule do
   end
 
   def make_callback_module(host_module, state_type, topic) do
-    IO.inspect(binding())
-
     callbacks =
       for {event, spec} <- topic.events do
         function = String.to_atom("handle_#{topic.topic}_#{event}")

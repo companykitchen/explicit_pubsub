@@ -1,6 +1,8 @@
 defmodule Pubsub do
   alias Pubsub.{Document, PhoenixPubsub}
   # Next Steps:
+  #   When changing an event, is it possible to also flag the
+  #      handle_topic_event functions?
   # Generate the behaviour by
   #   When subscribe/1 is called in a client module
   #   Register a before_compile attribute
@@ -88,22 +90,26 @@ defmodule Pubsub do
 
   # Ensures that if specs contain custom types that are defined in the
   # top-level module, that they are aliased
-  def namespace_specs(actions, calling_module) do
-    namespace =
-      calling_module
-      |> Module.split()
-      |> Enum.map(&String.to_existing_atom(&1))
-
+  def namespace_specs(actions, caller) do
     for {:publishes, _ctx, [event | [arg_spec]]} <- actions do
-      {event, namespace_spec(arg_spec, namespace)}
+      {event, namespace_spec(arg_spec, caller)}
     end
   end
 
-  def namespace_spec({atom, ctx, nil}, namespace) do
-    {{:., ctx, [{:__aliases__, ctx, namespace}, atom]}, ctx, []}
-  end
+  def namespace_spec(ast, caller) do
+    # First, put the calling module as the namespace
+    # for any type that is missing one
+    ast =
+      Macro.prewalk(ast, fn
+        {atom, ctx, nil} ->
+          {{:., ctx, [{:__aliases__, ctx, caller.module}, atom]}, ctx, []}
 
-  def namespace_spec(other, _namespace), do: other
+        other ->
+          other
+      end)
+
+    Macro.prewalk(ast, fn x -> Macro.expand(x, caller) end)
+  end
 
   def write_topic(string_topic, actions, caller) do
     module_name =
@@ -114,8 +120,7 @@ defmodule Pubsub do
       pubsub_module: caller.module,
       topic: string_topic,
       module: String.to_atom("#{caller.module}.#{module_name}"),
-      # namespace_specs(actions, caller.module)
-      events: Macro.expand(actions, caller)
+      events: namespace_specs(actions, caller)
     }
 
     Module.put_attribute(caller.module, :topics, topic)

@@ -1,11 +1,12 @@
 defmodule Pubsub.Demo do
-  alias Pubsub.Demo.Types
   @moduledoc "Testing module doc"
+  alias Pubsub.Demo.Types
   use Pubsub
+  @type mystr :: String.t
 
   topic "string_events" do
     publishes(:event1, Types.name_tuple())
-    publishes(:event2, String.t())
+    publishes(:event2, mystr)
   end
 
   topic "integer_events" do
@@ -23,6 +24,7 @@ defmodule Pubsub.Demo.Types do
 end
 
 defmodule Pubsub.DemoConsumer do
+  use GenServer
   use Pubsub.Demo.StringEvents
 
   def start_link(opts) do
