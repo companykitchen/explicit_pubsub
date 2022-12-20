@@ -14,7 +14,7 @@ defmodule Pubsub.PhoenixPubsub do
     quote do
       %{
         id: unquote(server),
-        start: {Phoenix.PubSub.PG2, :start_link, [unquote(server), []]}
+        start: {Phoenix.PubSub.PG2, :start_link, [[name: unquote(server), adapter_name: Phoenix.PubSub.PG2]]}
       }
     end
   end

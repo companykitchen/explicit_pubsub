@@ -22,8 +22,8 @@ defmodule Pubsub.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:phoenix_pubsub, "~> 1.1"},
-      {:dialyxir, "1.0.0-rc.6", only: [:dev, :test], runtime: false}
+      {:phoenix_pubsub, "~> 2.1"},
+      {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false}
     ]
   end
 
